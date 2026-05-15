@@ -1,89 +1,81 @@
-"""CLI entry-point for compressing / decompressing log slices.
-
-Usage examples::
-
-    # compress a plain log file
-    logslice-compress compress input.log -o output.log.gz
-
-    # decompress back to stdout
-    logslice-compress decompress output.log.gz
-"""
-
+"""CLI entry-point for log compression / decompression."""
 from __future__ import annotations
 
 import argparse
 import sys
+from typing import Sequence
 
-from logslice.compressor import compress_to_file, decompress_from_file
+from logslice.compressor import (
+    compress_to_file,
+    decompress_from_file,
+    compress_lines,
+    decompress_lines,
+)
 
 
 def build_compress_parser(
-    parser: argparse.ArgumentParser | None = None,
+    subparsers: "argparse._SubParsersAction | None" = None,
 ) -> argparse.ArgumentParser:
-    """Return (or populate) an ArgumentParser for the compress sub-commands."""
-    if parser is None:
-        parser = argparse.ArgumentParser(
-            prog="logslice-compress",
-            description="Compress or decompress log files.",
-        )
+    kwargs: dict = dict(
+        description="Compress or decompress log files using gzip.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    if subparsers is not None:
+        parser = subparsers.add_parser("compress", **kwargs)
+    else:
+        parser = argparse.ArgumentParser(**kwargs)
 
     sub = parser.add_subparsers(dest="action", required=True)
 
-    # -- compress sub-command -------------------------------------------------
-    cp = sub.add_parser("compress", help="Compress a plain-text log file.")
-    cp.add_argument("input", help="Path to the plain-text log file.")
-    cp.add_argument("-o", "--output", required=True, help="Output .gz path.")
-    cp.add_argument(
-        "-l",
+    enc = sub.add_parser("encode", help="Compress a log file")
+    enc.add_argument("input", help="Plain-text log file to compress")
+    enc.add_argument("output", help="Destination .gz file")
+    enc.add_argument(
         "--level",
         type=int,
-        default=6,
+        default=9,
         choices=range(1, 10),
         metavar="1-9",
-        help="gzip compression level (default: 6).",
+        help="Compression level (default: 9)",
     )
 
-    # -- decompress sub-command -----------------------------------------------
-    dp = sub.add_parser("decompress", help="Decompress a .gz log file to stdout.")
-    dp.add_argument("input", help="Path to the .gz log file.")
+    dec = sub.add_parser("decode", help="Decompress a .gz log file")
+    dec.add_argument("input", help="Compressed .gz file")
+    dec.add_argument(
+        "output",
+        nargs="?",
+        default="-",
+        help="Destination file (default: stdout)",
+    )
 
     return parser
 
 
-def run_compress(args: argparse.Namespace) -> int:
-    """Execute the compress / decompress action described by *args*.
+def run_compress(args: argparse.Namespace, out=None) -> None:
+    if out is None:
+        out = sys.stdout
 
-    Returns:
-        Exit code (0 = success, non-zero = error).
-    """
-    if args.action == "compress":
-        try:
-            with open(args.input) as fh:
-                lines = fh.readlines()
-            count = compress_to_file(lines, args.output, level=args.level)
-            print(f"Compressed {count} lines -> {args.output}", file=sys.stderr)
-        except FileNotFoundError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
-        return 0
+    if args.action == "encode":
+        with open(args.input) as fh:
+            lines = fh.readlines()
+        compress_to_file(lines, args.output, level=args.level)
+        out.write(f"Compressed {args.input} -> {args.output}\n")
 
-    if args.action == "decompress":
-        try:
-            for line in decompress_from_file(args.input):
-                sys.stdout.write(line)
-        except FileNotFoundError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 1
-        return 0
-
-    print(f"error: unknown action '{args.action}'", file=sys.stderr)
-    return 2
+    elif args.action == "decode":
+        lines = list(decompress_from_file(args.input))
+        if args.output == "-":
+            for line in lines:
+                out.write(line)
+        else:
+            with open(args.output, "w") as fh:
+                fh.writelines(lines)
+            out.write(f"Decompressed {args.input} -> {args.output}\n")
 
 
-def main(argv: list[str] | None = None) -> None:  # pragma: no cover
+def main(argv: Sequence[str] | None = None) -> None:
     parser = build_compress_parser()
     args = parser.parse_args(argv)
-    sys.exit(run_compress(args))
+    run_compress(args)
 
 
 if __name__ == "__main__":  # pragma: no cover
