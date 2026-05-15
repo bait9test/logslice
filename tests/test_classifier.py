@@ -81,3 +81,13 @@ def test_classify_lines_empty_rules():
     lines = ["anything"]
     results = list(classify_lines(lines, []))
     assert results[0].category is None
+
+
+def test_category_counts_no_unmatched(rules):
+    """When all lines match a rule, __unmatched__ should not appear in counts."""
+    lines = ["error here", "info there"]
+    classified = classify_lines(lines, rules)
+    counts = category_counts(classified)
+    assert "__unmatched__" not in counts
+    assert counts["error"] == 1
+    assert counts["info"] == 1
